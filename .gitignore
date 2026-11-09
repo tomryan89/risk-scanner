@@ -1,0 +1,17 @@
+# secrets
+.env
+
+# environment / caches
+.venv/
+__pycache__/
+*.pyc
+
+# generated data (folders kept via .gitkeep)
+data/*
+!data/.gitkeep
+output/*
+!output/.gitkeep
+
+# local notes, kept off GitHub (Tom, 2026-11-09)
+CLAUDE.md
+Principal Risks Scanner Plan.md
