@@ -178,7 +178,32 @@ def cmd_merge(args: argparse.Namespace) -> int:
     """Phase 7: combine Haiku, Opus, whole-report and tie-break runs into one final run."""
     from scanner import merge
 
-    merge.build(args.final, args.haiku, args.opus, args.report, args.tiebreak, args.confirm)
+    merge.build(args.final, args.haiku, args.opus, args.report, args.tiebreak, args.confirm, args.base)
+    return 0
+
+
+def cmd_refresh(args: argparse.Namespace) -> int:
+    """Refresh: find and download newer annual reports on XBRL."""
+    from scanner import refresh
+
+    refresh.check(dry_run=args.dry_run)
+    return 0
+
+
+def cmd_refresh_classify(args: argparse.Namespace) -> int:
+    """Refresh: re-classify only the companies with a newer report, then merge and export."""
+    from datetime import date
+
+    from scanner import refresh
+
+    path = Path(args.tickers_file) if args.tickers_file else config.DATA_DIR / f"refresh_{date.today().isoformat()}.txt"
+    if not path.exists():
+        print(f"No {path}: run `python -m scanner refresh` first (or pass --tickers-file).")
+        return 1
+    tickers = refresh.read_tickers(path)
+    if args.add:
+        tickers += [t.strip().upper() for t in args.add.split(",") if t.strip() and t.strip().upper() not in tickers]
+    refresh.classify_changed(args.name, args.base, tickers, args.every, args.haiku_only)
     return 0
 
 
@@ -242,7 +267,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--report", default="report-opus-2026-11")
     p.add_argument("--tiebreak", default="tiebreak-2026-11")
     p.add_argument("--confirm", default="confirm-opus-report")
+    p.add_argument("--base", help="earlier final run to carry unchanged companies over from")
     p.set_defaults(func=cmd_merge)
+    p = sub.add_parser("refresh", help="refresh: download newer annual reports from XBRL (lists manual checks too)")
+    p.add_argument("--dry-run", action="store_true", help="only list what's newer; download nothing")
+    p.set_defaults(func=cmd_refresh)
+    p = sub.add_parser("refresh-classify", help="refresh: re-classify changed companies, merge onto --base, export")
+    p.add_argument("--name", required=True, help="e.g. 2027-05 -> runs haiku-2027-05 ... and final-2027-05")
+    p.add_argument("--base", required=True, help="the previous final run, e.g. final-2026-11")
+    p.add_argument("--tickers-file", help="default: data/refresh_<today>.txt from the refresh command")
+    p.add_argument("--add", help="extra tickers, e.g. ones you refreshed by hand from websites")
+    p.add_argument("--every", type=int, default=180, help="seconds between batch checks")
+    p.add_argument("--haiku-only", action="store_true", help="no Opus: ~$0.01/company instead of ~$0.08, less checking")
+    p.set_defaults(func=cmd_refresh_classify)
     p = sub.add_parser("export", help="phase 6: write output/results_<run>.xlsx, one row per company")
     p.add_argument("--run", required=True)
     p.set_defaults(func=cmd_export)

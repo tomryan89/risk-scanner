@@ -84,7 +84,10 @@ def submit(run: str, effort: str = "medium", tickers: list[str] | None = None, m
             raise SystemExit("--mode report needs --tickers")
         done = {r["ticker"] for r in con.execute(
             "SELECT ticker FROM classifications WHERE run=? AND status='done'", (run,))}
-        todo = [t for t in tickers if t not in done and con.execute(
+        waiting = {r["ticker"] for r in con.execute(
+            "SELECT i.ticker FROM batch_items i JOIN batches b USING (batch_id) "
+            "WHERE b.run=? AND b.status != 'collected'", (run,))}
+        todo = [t for t in tickers if t not in done and t not in waiting and con.execute(
             "SELECT 1 FROM reports WHERE ticker=? AND status='downloaded'", (t,)).fetchone()]
     else:
         todo = pending(con, run, tickers)

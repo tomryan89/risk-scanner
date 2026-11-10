@@ -25,7 +25,9 @@ def ensure_columns(con) -> None:
 
 
 def build(final: str, haiku: str, opus: str, report: str, tiebreak: str | None = None,
-          confirm: str | None = None, log=print) -> None:
+          confirm: str | None = None, base: str | None = None, log=print) -> None:
+    """base: an earlier final run; every company not covered by the other runs is carried over from it unchanged
+    (refresh runs only re-classify companies with a newer report)."""
     con = db.connect()
     ensure_columns(con)
 
@@ -43,7 +45,8 @@ def build(final: str, haiku: str, opus: str, report: str, tiebreak: str | None =
             prev = rep.get(t) or tb.get(t) or o.get(t) or h.get(t)
             other = f"Earlier verdict: {prev['verdict']}" if prev else None
         elif t in rep:
-            row, basis = rep[t], "Opus read the whole report (section finder failed or doubtful)"
+            who = "Haiku" if "haiku" in (rep[t]["model"] or "") else "Opus"
+            row, basis = rep[t], f"{who} read the whole report (section finder failed or doubtful)"
             if t in h:
                 other = f"Haiku on the extracted section: {h[t]['verdict']}"
         elif t in h and t in o:
@@ -63,6 +66,20 @@ def build(final: str, haiku: str, opus: str, report: str, tiebreak: str | None =
         con.execute(f"INSERT INTO classifications ({', '.join(COLS)}, basis, other_view) "
                     f"VALUES ({', '.join('?' * (len(COLS) + 2))})", vals + [basis, other])
         counts[basis] = counts.get(basis, 0) + 1
+    if base:
+        covered = set(h) | set(o) | set(rep) | set(cf)
+        carried = 0
+        for row in con.execute("SELECT * FROM classifications WHERE run=?", (base,)).fetchall():
+            if row["ticker"] in covered:
+                continue
+            vals = [row[c] for c in COLS]
+            vals[COLS.index("run")] = final
+            con.execute(f"INSERT INTO classifications ({', '.join(COLS)}, basis, other_view) "
+                        f"VALUES ({', '.join('?' * (len(COLS) + 2))})",
+                        vals + [f"{row['basis'] or ''} (carried over from {base}: no newer report)".strip(),
+                                row["other_view"]])
+            carried += 1
+        counts[f"carried over from {base}"] = carried
     con.commit()
     for b, n in sorted(counts.items(), key=lambda x: -x[1]):
         log(f"{n:4}  {b}")
